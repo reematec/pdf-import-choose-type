@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<inkscape-extension xmlns="http://www.inkscape.org/namespace/inkscape/extension">
+  <name>JFIF image</name>
+  <id>jfif_import.input</id>
+  <dependency type="file" location="inx">jfif_import.py</dependency>
+  <input>
+    <extension>.jfif</extension>
+    <mimetype>image/jpeg</mimetype>
+    <filetypename>JFIF image (*.jfif)</filetypename>
+    <filetypetooltip>JPEG image saved with the .jfif ending (embedded at its real size)</filetypetooltip>
+  </input>
+  <script>
+    <command location="inx" interpreter="python">jfif_import.py</command>
+  </script>
+</inkscape-extension>

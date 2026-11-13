@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+
+# test output and test PDFs (never commit client artwork)
+/design/
+out/
+*.pdf
+*.png
+*.svg
+
+# CMYK profiles are not shipped (license); users add their own
+extension/profiles/*.icc
+extension/profiles/*.icm

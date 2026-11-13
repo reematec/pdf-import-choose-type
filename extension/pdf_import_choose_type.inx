@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<inkscape-extension xmlns="http://www.inkscape.org/namespace/inkscape/extension">
+  <name>PDF Import (Choose type)</name>
+  <id>pdf_import_choose_type.input</id>
+  <dependency type="file" location="inx">pdf_import_choose_type.py</dependency>
+  <param name="type" type="optiongroup" appearance="combo" gui-text="PDF type:">
+    <option value="vector">Vector artwork (keep clips)</option>
+    <option value="standard">Standard PDF (Inkscape default)</option>
+  </param>
+  <param name="pages" type="string" gui-text="Pages (all, or e.g. 1,3 or 2-4):">all</param>
+  <label appearance="header">Vector artwork (keep clips)</label>
+  <param name="text" type="optiongroup" appearance="combo" gui-text="Text:">
+    <option value="outlines">Outlines (looks exactly like the PDF)</option>
+    <option value="editable">Editable text (needs the fonts installed)</option>
+  </param>
+  <label>For artwork from CorelDRAW or Illustrator. Keeps each PowerClip or clipping mask as one clipped group. Colors use the PDF's own profile. Text in fonts that are not embedded in the PDF stays editable.</label>
+  <label appearance="header">Standard PDF (Inkscape default)</label>
+  <label>For documents, spreadsheets and anything else that is not artwork. Runs Inkscape's own PDF import, unchanged.</label>
+  <input>
+    <extension>.pdf</extension>
+    <mimetype>application/pdf</mimetype>
+    <filetypename>PDF Import (Choose type) (*.pdf)</filetypename>
+    <filetypetooltip>Import a PDF as vector artwork (keeps PowerClips / clipping masks as clipped groups) or with Inkscape's standard import</filetypetooltip>
+  </input>
+  <script>
+    <command location="inx" interpreter="python">pdf_import_choose_type.py</command>
+  </script>
+</inkscape-extension>
