@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<inkscape-extension xmlns="http://www.inkscape.org/namespace/inkscape/extension">
+  <name>End isolation</name>
+  <id>isolate.end</id>
+  <param name="mode" type="string" gui-hidden="true">end</param>
+  <effect needs-live-preview="false">
+    <object-type>all</object-type>
+    <effects-menu>
+      <submenu name="Arrange">
+        <submenu name="Isolate"/>
+      </submenu>
+    </effects-menu>
+    <menu-tip>Restore what Isolate selection dimmed and locked</menu-tip>
+  </effect>
+  <script>
+    <command location="inx" interpreter="python">isolate.py</command>
+  </script>
+</inkscape-extension>

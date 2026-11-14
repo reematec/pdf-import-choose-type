@@ -4,3 +4,6 @@
 *.icc binary
 *.png binary
 *.pdf binary
+*.dll binary
+*.pyd binary
+*.so binary

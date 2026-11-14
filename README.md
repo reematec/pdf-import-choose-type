@@ -85,6 +85,14 @@ No color profile is bundled. For PDFs that do not name their own CMYK profile, t
 
 `jfif-import/` is a separate small extension that lets Inkscape open `.jfif` files (JPEGs that Windows browsers save with that ending). See [jfif-import/README.md](jfif-import/README.md).
 
+## Extra: isolate a clip group
+
+`isolate/` is a separate small extension that hides everything except the selected objects, so you can edit one clip group without the rest in the way, and then shows everything again. See [isolate/README.md](isolate/README.md).
+
+## Extra: flatten clips and overlaps
+
+`flatten/` is a separate extension that turns clipped artwork (also nested PowerClips) into flat filled paths, one per color, with lines converted to shapes and hidden parts cut away, for example to prepare panels for a web configurator. Windows only for now; needs Python 3.10+ from python.org. See [flatten/README.md](flatten/README.md).
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

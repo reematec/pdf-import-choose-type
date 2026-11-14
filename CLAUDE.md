@@ -29,6 +29,32 @@ inkscape-setup/                separate from the extension: dock_icons_only.py s
                                and dock width in an Inkscape profile (Windows and Linux); not installed
 jfif-import/                   separate input extension: opens .jfif (a JPEG) like Inkscape opens .jpg
                                (JFIF-header DPI else 96, EXIF rotation -> PNG); own install.cmd / install.sh
+flatten/                       separate effect extension: Extensions > Modify Path > Flatten clips and
+                               overlaps. flatten.py (inkex, Inkscape's Python) collects shapes, clip chains,
+                               styles; flatten_worker.py runs in a Python 3.10+ (found by find_python, or
+                               FLATTEN_PYTHON) with vendor/pathops (skia-pathops 0.9.2, win_amd64 and
+                               manylinux x86-64 abi3). Inkscape's MinGW Python on Windows can't load it, so
+                               python.org Python is used there. Don't use Inkscape's
+                               path-flatten/booleans instead: they left 0.1-0.2 mm gaps. Geometry is scaled
+                               to ~100000 units in the worker (Skia's stroker assumes pixel units); strokes
+                               are converted in local coordinates, then transformed. Fill/clip outlines are
+                               closed and simplified before any op (unclosed outlines broke ops). Skia can
+                               return wrong results silently on complex shapes: every op is checked by point
+                               sampling with fallbacks, and each piece is cut by the pieces above it one at a
+                               time (cutting a union of many dots at once lost holes that sampling can't see).
+                               Shapes from simplify are checked against the raw path (point tests, also per
+                               outline) and rebuilt outline by outline if wrong (simplify filled a hole whose
+                               edge lay on the outer edge). Ops that Skia refuses are retried in swapped form
+                               (a-b as b reverse-diff a). Flat cubics in fills are written as lines.
+                               Output paths (path_keys in the worker): one per panel-level object (labeled with
+                               its id), one per color per inner group, and with the join_outlines option an
+                               outline drawn on a same-color surface joins it. Not one path per color: the owner
+                               needs same-color elements recolorable separately.
+                               Don't measure overlaps with Skia's own intersection; it reported false overlaps
+                               between correct pieces; use point tests. Test: tests/test_flatten.py (no-AA
+                               renders, "wider than 3 px" must be 0).
+isolate/                       separate effect extension (uses inkex): Extensions > Arrange > Isolate >
+                               Isolate selection (dims others to 25% + locks) / End isolation; marks data-isolate
 ```
 
 The extension runs on Inkscape's bundled Python on Windows (`C:\Program Files\Inkscape\bin\python.exe`, which has Pillow with ImageCms, and numpy). The owner has Inkscape 1.4.0. Upgrading needs admin rights, and the winget upgrade failed.
@@ -62,6 +88,8 @@ The extension runs on Inkscape's bundled Python on Windows (`C:\Program Files\In
 - **Python 3.8 is the floor.** The official Inkscape 1.4 AppImage runs extensions with Python 3.8. The vendored libraries are the newest that support it; pypdf 7 / fontTools 4.68 crashed there. Don't upgrade them past 3.8 support, and don't use Python 3.9+ features in our code. Changing them gave byte-identical output on every sample.
 - **AppImage tested** (Inkscape 1.4, extracted in `~/inkscape-test` on the test machine): Vector and Standard both pass.
 - **Not tested yet:** the dialog in a Linux desktop, Flatpak and Snap.
+- **For now, new features are built and tested on Windows only;** Linux comes later as its own step.
+- **`flatten/` and `isolate/` on Linux (tested 2026-11-14, Ubuntu 24.04, apt 1.2 and 1.4 AppImage):** vendor/pathops also holds the Linux `_pathops.abi3.so` (cp310-abi3, x86-64); each installer copies only its own system's files. On Linux, Inkscape's own Python is used when it is 3.10+; the AppImage's Python 3.8 runs flatten.py (keep it 3.8-compatible) and the worker runs in the system python3, with PYTHONHOME/PYTHONPATH/LD_LIBRARY_PATH removed (`clean_env`). Inkscape 1.2 has no `--export-png-antialias`: run tests/test_flatten.py with `INKSCAPE=~/inkscape-test/squashfs-root/AppRun`. Inkscape 1.2's toolbar-select.ui is empty (toolbar built in code), so add_shortcuts_and_buttons.py only adds shortcuts there.
 
 ## Working with the owner
 

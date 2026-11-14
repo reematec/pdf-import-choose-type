@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<inkscape-extension xmlns="http://www.inkscape.org/namespace/inkscape/extension">
+  <name>Flatten clips and overlaps</name>
+  <id>flatten.clips_overlaps</id>
+  <label>Each object becomes its own flat path (patterns in an inner group: one path per color). Lines become shapes, clips become real cuts, hidden parts are removed.</label>
+  <param name="join_outlines" type="bool" gui-text="Outlines in the color of the surface under them join that surface">true</param>
+  <label appearance="header">Example</label>
+  <label>White rings around dots on a white base: on, they recolor with the base; off, they get their own path.</label>
+  <effect needs-live-preview="false">
+    <object-type>all</object-type>
+    <effects-menu>
+      <submenu name="Modify Path"/>
+    </effects-menu>
+    <menu-tip>Replace each selected object with flat filled paths: lines become shapes, clips become real cuts, hidden parts are removed</menu-tip>
+  </effect>
+  <script>
+    <command location="inx" interpreter="python">flatten.py</command>
+  </script>
+</inkscape-extension>

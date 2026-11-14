@@ -3,6 +3,7 @@ __pycache__/
 
 # test output and test PDFs (never commit client artwork)
 /design/
+/sorted designs/
 out/
 *.pdf
 *.png

@@ -152,6 +152,34 @@ def clean_xml_text(t):
 
 
 # ---------------------------------------------------------------- SVG tree
+# Style properties are written inside style="..." (as Inkscape writes its own objects), not as
+# separate attributes: Inkscape's boolean operations (Union, Difference, ...) and some other
+# commands copy only the style attribute to the result, so separate fill="..." was lost.
+STYLE_PROPS = frozenset((
+    'fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity',
+    'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-dasharray',
+    'stroke-dashoffset', 'opacity', 'clip-rule', 'mix-blend-mode', 'stop-color', 'stop-opacity',
+    'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'word-spacing',
+    'text-anchor', 'paint-order', 'display', 'visibility'))
+
+
+def style_attrs(attrs):
+    """attrs with the style properties merged into one style attribute, at the first one's place."""
+    if not any(k in STYLE_PROPS for k, _ in attrs):
+        return attrs
+    props = [(k, v) for k, v in attrs if k in STYLE_PROPS]
+    out, placed = [], False
+    for k, v in attrs:
+        if k in STYLE_PROPS or k == 'style':
+            if not placed:
+                extra = [v for kk, v in attrs if kk == 'style']
+                out.append(('style', ';'.join(['%s:%s' % kv for kv in props] + extra)))
+                placed = True
+        else:
+            out.append((k, v))
+    return out
+
+
 class Node:
     __slots__ = ('tag', 'attrs', 'children', 'text')
 
@@ -172,7 +200,7 @@ class Node:
 
     def write(self, out, depth=0):
         pad = '  ' * depth
-        attrs = ''.join(' %s="%s"' % (k, v) for k, v in self.attrs)
+        attrs = ''.join(' %s="%s"' % (k, v) for k, v in style_attrs(self.attrs))
         if self.text is not None:
             out.append('%s<%s%s>%s</%s>' % (pad, self.tag, attrs, self.text, self.tag))
         elif not self.children:
@@ -193,6 +221,26 @@ def prune(node):
         prune(c)
         keep.append(c)
     node.children = keep
+
+
+def has_clip(node):
+    return any(k == 'clip-path' for k, _ in node.attrs)
+
+
+def wrap_nested_clips(node, clipped=False):
+    """Put each clipped object that sits directly in a clipped group into a plain group.
+
+    Inkscape's Ungroup copies the group's clip onto every child and replaces a child's own
+    clip instead of combining them, so ungrouping an outer PowerClip broke the inner ones
+    (the pattern spilled out of its shape). With the plain group in between, the outer clip
+    lands on that group and the inner clip stays. Rendering is unchanged.
+    """
+    for i, c in enumerate(node.children):
+        wrap_nested_clips(c, has_clip(c))
+        if clipped and has_clip(c):
+            wrapper = Node('g')
+            wrapper.children.append(c)
+            node.children[i] = wrapper
 
 
 # ---------------------------------------------------------------- color
@@ -2434,6 +2482,7 @@ def convert(path, text_mode='outlines', pages='all'):
         page_boxes.append((x, 0.0, w, h))
         x += w + gap
     prune(root)
+    wrap_nested_clips(root)
     W, H = page_boxes[0][2], page_boxes[0][3]
     out = ['<?xml version="1.0" encoding="UTF-8" standalone="no"?>',
            '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"'
