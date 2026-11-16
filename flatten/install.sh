@@ -22,7 +22,7 @@ for dir in "$CONFIG/inkscape/extensions" \
     esac
     rm -rf "$dir/flatten"
     mkdir -p "$dir/flatten/vendor/pathops"
-    cp "$SRC/flatten.py" "$SRC/flatten_worker.py" "$SRC/flatten.inx" "$dir/flatten/"
+    cp "$SRC/flatten.py" "$SRC/flatten_worker.py" "$SRC/gradients.py" "$SRC/flatten.inx" "$dir/flatten/"
     # Linux needs only the .so; the Windows files (.pyd, .dll) are left out.
     for f in "$SRC"/vendor/pathops/*.py "$SRC"/vendor/pathops/*.so; do
         cp "$f" "$dir/flatten/vendor/pathops/"

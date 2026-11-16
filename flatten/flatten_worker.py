@@ -372,7 +372,13 @@ def flatten_unit(items, clip_defs, join=True):
         visible.append(vis)
     # Which output path each piece goes to (see path_keys), then merge per path in order
     # of first appearance.
-    keys, labels, joined = path_keys(items, pieces, owners, join)
+    keys, labels, n_joined = path_keys(items, pieces, owners, join)
+    before = list(keys)
+    keys, fades_joined = join_shades(items, owners, visible, keys)
+    # Paths that received a part from join_shades are put together without a Skia union:
+    # visible pieces never overlap (each was cut by the pieces above it), and Skia's union
+    # of a blade's two parts once dropped an area silently.
+    side_by_side = set(keys[i] for i in range(len(keys)) if keys[i] != before[i])
     merged, order = {}, []
     for i, vis in enumerate(visible):
         if empty(vis):
@@ -381,10 +387,13 @@ def flatten_unit(items, clip_defs, join=True):
         if k not in merged:
             merged[k] = pathops.Path()
             order.append(k)
-        merged[k] = op(merged[k], vis, UNION)
+        if k in side_by_side:
+            merged[k] = joined(merged[k], vis)
+        else:
+            merged[k] = op(merged[k], vis, UNION)
     pieces_out = [{'color': k[2], 'label': labels[k], 'd': to_d(merged[k])} for k in order]
     return {'pieces': [p for p in pieces_out if p['d']], 'errors': errors, 'unsure': UNSURE[0],
-            'joined': joined}
+            'joined': n_joined, 'fades_joined': fades_joined}
 
 
 JOIN_SAMPLES = 32
@@ -444,6 +453,153 @@ def path_keys(items, pieces, owners, join):
         keys.append(k)
         labels.setdefault(k, lab)
     return keys, labels, joined
+
+
+SHADE_TOL = 8.0   # color levels (0..255): a part's own color counts as one color within this
+JOIN_TOL = 20.0   # the main fade may differ this much from a joined part, at the part's edge
+
+
+CURVE_STEPS = 32
+
+
+def outline_points(shape):
+    """Points on a shape's outline: the corners, and each curve at CURVE_STEPS places
+    (curve handles are not on the outline and can reach well beyond it)."""
+    out, cur = [], (0.0, 0.0)
+    for verb, pts in shape:
+        if not pts:
+            continue
+        if len(pts) == 1:
+            out.append(pts[0])
+        else:
+            ctrl = [cur] + list(pts)
+            for k in range(1, CURVE_STEPS + 1):
+                u = k / float(CURVE_STEPS)
+                p = list(ctrl)
+                while len(p) > 1:  # de Casteljau, for quadratic and cubic alike
+                    p = [((1 - u) * a[0] + u * b[0], (1 - u) * a[1] + u * b[1]) for a, b in zip(p, p[1:])]
+                out.append(p[0])
+        cur = pts[-1]
+    return out
+
+
+def shade_t(sh, shape):
+    """(min, max) of where a shape's outline lies along a fade (0 = p0, 1 = p1)."""
+    (x0, y0), (x1, y1) = sh['p0'], sh['p1']
+    vx, vy = x1 - x0, y1 - y0
+    L2 = vx * vx + vy * vy
+    ts = [((px / SCALE - x0) * vx + (py / SCALE - y0) * vy) / L2 if L2 > 0 else 0.0
+          for px, py in outline_points(shape)]
+    return (min(ts), max(ts)) if ts else None
+
+
+def flat_color(sh, shape, tol=SHADE_TOL):
+    """The one color a gradient part shows over the whole shape, or None when the color
+    changes there by more than tol: a solid part's color, or a fade's end color when the
+    whole shape lies beyond that end (the end color continues there)."""
+    a, b = sh['A'], sh['B']
+    if not sh.get('p0'):
+        return a
+    span = max(abs(b[i] - a[i]) for i in range(3)) or 1.0
+    slack = tol / span  # how far into the change the color still differs <= tol
+    r = shade_t(sh, shape)
+    if r is None:
+        return None
+    if r[1] <= slack:
+        return a
+    if r[0] >= 1.0 - slack:
+        return b
+    return None
+
+
+def touching(a, b):
+    """Bounding boxes that overlap or touch (pieces cut from each other share an edge)."""
+    m = 1e-4 * TARGET_SIZE
+    x0, y0, x1, y1 = a.bounds
+    u0, v0, u1, v1 = b.bounds
+    return not (u0 > x1 + m or u1 < x0 - m or v0 > y1 + m or v1 < y0 - m)
+
+
+def same_fade(s1, s2):
+    if not s1.get('p0') or not s2.get('p0') or s1['A'] != s2['A'] or s1['B'] != s2['B']:
+        return False
+    (x0, y0), (x1, y1) = s1['p0'], s1['p1']
+    tol = 1e-4 * (((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5)
+    return all(abs(u - v) <= tol for p, q in (('p0', 'p0'), ('p1', 'p1'))
+               for u, v in zip(s1[p], s2[q]))
+
+
+def join_shades(items, owners, visible, keys):
+    """Parts of one gradient-filled object group (a blade drawn by a PDF as a fade plus a
+    solid end, each clipped to the blade) become one path with the group's main fade (the
+    largest) where that looks the same: a part that shows one color over its whole shape
+    (a solid, or a fade beyond one of its ends) lying where the main fade shows that same
+    color, or the same fade. Decided from points on the shapes' outlines.
+
+    The main fade may still be changing a little at the part's edge (up to JOIN_TOL): a
+    PDF fade often stops just short of its end color where the solid end starts (16 levels
+    in a test design, a visible step there). Joined, the fade carries on into the solid end,
+    so that step becomes smooth; a strip of the solid end next to the fade gets that much
+    lighter or darker. Parts that differ keep their own path. Only parts that came
+    from gradient fills ('shade') take part, so designs without gradients are not affected.
+    The parts of one shape are those shown through the same clips apart from each one's
+    own innermost clip ('shade_group'), and touching the main fade.
+
+    A second fade between the same two colors in another direction (a PDF draws a curved
+    blade's fade as straight fades: gold to black, then black with a small gold glow at the
+    tip) also joins: the owner wants one path per blade and one gold to change. It then
+    shows the main fade's color, so its own small fade (the glow) is lost; counted in
+    fades_joined so the message says so."""
+    groups = {}
+    for i, vis in enumerate(visible):
+        n, is_line = owners[i]
+        it = items[n]
+        if is_line or not it.get('shade') or not it.get('shade_group') or empty(vis):
+            continue
+        groups.setdefault(it['shade_group'], []).append(i)
+    keys = list(keys)
+    fades_joined = 0
+    for members in groups.values():
+        fades = [i for i in members if items[owners[i][0]]['shade'].get('p0')]
+        if not fades or len(members) < 2:
+            continue
+        main = max(fades, key=lambda i: abs(visible[i].area))
+        msh = items[owners[main][0]]['shade']
+        for i in members:
+            if i == main or keys[i] == keys[main]:
+                continue
+            sh = items[owners[i][0]]['shade']
+            if not touching(visible[i], visible[main]):
+                continue  # not part of the same shape
+            ok = same_fade(sh, msh)
+            if not ok:
+                c1, c2 = flat_color(sh, visible[i]), flat_color(msh, visible[i], JOIN_TOL)
+                ok = c1 is not None and c2 is not None and max(
+                    abs(c1[k] - c2[k]) for k in range(3)) <= SHADE_TOL
+                if not ok and sh.get('p0') and same_colors(sh, msh):
+                    ok = True
+                    fades_joined += 1
+
+            if os.environ.get('FLATTEN_DEBUG'):
+                sys.stderr.write('shade %s -> %s: %s (on main fade %s; own %s; colors %s / %s)\n' % (
+                    items[owners[i][0]].get('id'), items[owners[main][0]].get('id'),
+                    'joined' if ok else 'kept', shade_t(msh, visible[i]),
+                    shade_t(sh, visible[i]) if sh.get('p0') else '-',
+                    flat_color(sh, visible[i]), flat_color(msh, visible[i])))
+            if ok:
+                keys[i] = keys[main]
+    return keys, fades_joined
+
+
+PAIR_TOL = 16.0  # end colors this close count as the same (as PALETTE in gradients.py)
+
+
+def same_colors(s1, s2):
+    """Two fades between the same two colors, either way round."""
+    def near(c1, c2):
+        return max(abs(c1[k] - c2[k]) for k in range(3)) <= PAIR_TOL
+    return ((near(s1['A'], s2['A']) and near(s1['B'], s2['B'])) or
+            (near(s1['A'], s2['B']) and near(s1['B'], s2['A'])))
 
 
 def main():

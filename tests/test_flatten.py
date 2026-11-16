@@ -5,6 +5,11 @@ renders the original and the result with Inkscape without anti-aliasing, and rep
   - differing pixels (1-pixel edge noise is normal: Inkscape draws strokes and fills
     with slightly different pixel rules),
   - pixels in differences wider than 3 pixels (should be 0: real geometry errors),
+    not counting differences of 1 color level (rounding inside gradients; solid colors
+    can't produce them, as anti-aliasing is off); when there are any, also the largest
+    difference and the count above 24 color levels (two-color fades differ by a few levels
+    from the original gradient's curve, joined solid ends of a fade by up to 20; a
+    geometry error by a whole color),
   - the same per top-level clip group (panel).
 
 Usage (Windows, Inkscape's Python; Inkscape closed or not, it doesn't matter):
@@ -61,9 +66,19 @@ def main():
     render(flat, flat_png)
     a = np.asarray(Image.open(ref_png).convert('RGB')).astype(np.int16)
     b = np.asarray(Image.open(flat_png).convert('RGB')).astype(np.int16)
-    diff = Image.fromarray(((np.abs(a - b).max(axis=2) > 0) * 255).astype('uint8'))
+    level = np.abs(a - b).max(axis=2)
+    diff = Image.fromarray(((level > 1) * 255).astype('uint8'))
     wide = np.asarray(diff.filter(ImageFilter.MinFilter(3))) > 0
-    print('page: differing %d px, wider than 3 px: %d' % ((np.asarray(diff) > 0).sum(), wide.sum()))
+    print('page: differing %d px (%d by 1 color level), wider than 3 px: %d'
+          % ((level > 0).sum(), (level == 1).sum(), wide.sum()))
+    if wide.any():
+        # Two-color fades replace a gradient's in-between stops (a few color levels), and
+        # a blade's solid end joined to its fade can differ by up to 20 levels next to the
+        # fade; a geometry error differs by a whole color (tens of levels or more).
+        big = np.asarray(Image.fromarray(((level > 24) * 255).astype('uint8'))
+                         .filter(ImageFilter.MinFilter(3))) > 0
+        print('  largest difference there: %d color levels; wider than 3 px and more than 24 '
+              'levels: %d (must be 0)' % (level[wide].max(), big.sum()))
     k = WIDTH / doc.viewbox_width if hasattr(doc, 'viewbox_width') else WIDTH / float(doc.get_viewbox()[2])
     for c in layer:
         if c.get('clip-path'):

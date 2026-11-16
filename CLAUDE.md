@@ -52,7 +52,32 @@ flatten/                       separate effect extension: Extensions > Modify Pa
                                needs same-color elements recolorable separately.
                                Don't measure overlaps with Skia's own intersection; it reported false overlaps
                                between correct pieces; use point tests. Test: tests/test_flatten.py (no-AA
-                               renders, "wider than 3 px" must be 0).
+                               renders, "wider than 3 px" must be 0; 1-color-level differences are
+                               gradient rounding and not counted).
+                               Gradient fills: flatten/gradients.py (only url() fills reach it; solid
+                               objects take the unchanged path). Owner's rule: one path per object, NOT
+                               split by color; recoloring a color must be one change. So a linear
+                               gradient whose visible part is one fade A->B becomes a 2-stop gradient
+                               (start/end chosen for the smallest largest difference from the original, pad beyond) that
+                               xlink:hrefs a shared gradient holding only A and B; near-equal end
+                               colors across the design are merged (PALETTE). Fades differ from the
+                               original by a few color levels. In the worker, join_shades puts a
+                               blade's solid end (a separate PDF shading in the end color) into the
+                               blade's fade path, judged on points along the outlines (sampling
+                               missed a thin strip once): up to JOIN_TOL 20 levels at the edge, as
+                               PDF fades can stop 16 levels short of the solid end. Parts of a blade =
+                               same clips minus each one's own innermost clip ('shade_group'), and
+                               touching. A second fade in another direction with the same two colors
+                               also joins (owner chose this: one path per blade; its tip glow is lost,
+                               which the test shows as >24-level spots of ~900 px at 8000 px width).
+                               Joined paths are combined side by side (addPath), not by Skia union:
+                               the union dropped part of a blade silently.
+                               In the worker a gradient is a color key "url(#__flatgradN)", replaced
+                               on writing, so the worker is unchanged. A PDF shading's +-50000
+                               rectangle is shrunk to its clip area first (the worker scales by the
+                               biggest coordinate). xlink is declared on the root (inline-HTML SVG
+                               needs "xlink:href"). Radial/repeat/3+ colors: own stops. Stroke
+                               gradients: still left out.
 isolate/                       separate effect extension (uses inkex): Extensions > Arrange > Isolate >
                                Isolate selection (dims others to 25% + locks) / End isolation; marks data-isolate
 ```

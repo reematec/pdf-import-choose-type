@@ -27,6 +27,9 @@ import sys
 
 import inkex
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gradients  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORKER = os.path.join(HERE, 'flatten_worker.py')
 SHAPES = (inkex.PathElement, inkex.Rectangle, inkex.Circle, inkex.Ellipse, inkex.Polygon,
@@ -125,6 +128,8 @@ class Flatten(inkex.EffectExtension):
             raise inkex.AbortExtension('Select one or more objects (for example panels) first.')
         self.clips = {}
         self.notes = {}
+        self.grads = gradients.GradientFills(self.svg, self.note)
+        self.fades_joined = 0
         units, plans = [], []
         outer_boxes = [b for b in (self.outer_clip_box(e) for e in selected) if b is not None]
         for el in selected:
@@ -167,9 +172,21 @@ class Flatten(inkex.EffectExtension):
             if unit.get('joined'):
                 self.note('%s: %d outline(s) in the color of the surface under them were joined with that '
                           'surface' % (label, unit['joined']))
+            if unit.get('fades_joined'):
+                self.fades_joined += unit['fades_joined']
             if unit.get('unsure'):
                 self.note('%s: %d cut(s) could not be confirmed by the geometry check; '
                           'please check this part' % (label, unit['unsure']))
+        if self.grads.written:
+            # Declare xlink once on the root, so the links read "xlink:href" (what a web
+            # page with the SVG inline understands), not "ns1:href" on every gradient.
+            from lxml import etree
+            etree.cleanup_namespaces(self.document.getroot(),
+                                     top_nsmap={'xlink': 'http://www.w3.org/1999/xlink'})
+        if self.fades_joined:
+            self.note('%d part(s) with their own fade in another direction were joined with the main '
+                      'fade of their shape, so each shape is one path; their own small fade (for '
+                      'example a glow at a tip) is not kept' % self.fades_joined)
         if self.notes:
             self.msg('Flattened with notes:\n' + '\n'.join(
                 '- %s%s' % (k, ' (%d times)' % n if n > 1 else '') for k, n in self.notes.items()))
@@ -290,6 +307,13 @@ class Flatten(inkex.EffectExtension):
                 node = node.getparent()
             fill, p1 = paint(st.get('fill'))
             stroke, p2 = paint(st.get('stroke'))
+            if p1:  # a gradient fill: split into solid parts and fades (see gradients.py)
+                done = self.gradient_items(el, st, stroke, chain, top, items)
+                if done:
+                    p1 = None
+                    if p2:
+                        self.note('%s was left out (only solid colors are supported)' % p2)
+                    continue
             for problem in (p1, p2):
                 if problem:
                     self.note('%s was left out (only solid colors are supported)' % problem)
@@ -321,6 +345,64 @@ class Flatten(inkex.EffectExtension):
             })
         return items, keep
 
+    def gradient_items(self, el, st, stroke, chain, top, items):
+        """Items for an object with a gradient fill: one per solid part or fade, each cut
+        by its band (an extra clip); the outline, if any, as its own item on top.
+        False when the gradient can't be handled (it is then left out, as before)."""
+        clip_box = None
+        for key in chain:
+            clip_box = gradients.box_and(clip_box, gradients.bbox_of(self.clips[key]['d']))
+            if clip_box is None:
+                return True  # the clips don't overlap: nothing of it is visible
+        T = el.composed_transform()
+        res = self.grads.split(el, T, abs_d(el.path, T), clip_box, [self.clips[k]['d'] for k in chain])
+        if res is None:
+            return False
+        d, parts = res
+        opac = length(st.get('opacity', 1)) * length(st.get('fill-opacity', 1))
+        if opac < 0.999 or (stroke and length(st.get('stroke-opacity', 1)) < 0.999):
+            self.note('transparency was ignored (treated as fully opaque)')
+        if st.get('stroke-dasharray') not in (None, 'none') and stroke:
+            self.note('dashed lines were converted as solid lines')
+        grp = self.branch(el, top) if el is not top else None
+        name = self.name(el)
+
+        def item(fill, stroke_, clips, label):
+            return {
+                'id': el.get_id(),
+                'label': label,
+                'group': grp.get_id() if grp is not None else None,
+                'group_label': self.name(grp) if grp is not None else None,
+                'd': d,
+                'local_d': abs_d(el.path, inkex.Transform()) if stroke_ else '',
+                'matrix': [T.a, T.b, T.c, T.d, T.e, T.f],
+                'rule': st.get('fill-rule', 'nonzero'),
+                'fill': fill,
+                'stroke': stroke_,
+                'width': length(st.get('stroke-width', 1)),
+                'cap': st.get('stroke-linecap', 'butt'),
+                'join': st.get('stroke-linejoin', 'miter'),
+                'miter': length(st.get('stroke-miterlimit', 4), 4.0),
+                'clips': clips,
+            }
+
+        if len(parts) == 1 and parts[0][1] is None:
+            color, _, suffix = parts[0]
+            keep_suffix = suffix if self.grads.is_key(color) else ''
+            it = item(color, stroke, list(chain), name + keep_suffix)
+            sh = self.grads.shade(color)
+            if sh:
+                it['shade'] = sh  # lets the worker join the parts of one blade (join_shades)
+                # Parts of one blade: each has its own clip, inside the blade's clips.
+                it['shade_group'] = '|'.join(chain[1:]) if len(chain) > 1 else None
+            items.append(it)
+            return True
+        for color, band, suffix in parts:
+            items.append(item(color, None, list(chain) + ([band] if band else []), name + suffix))
+        if stroke:
+            items.append(item(None, stroke, list(chain), name + ' outline'))
+        return True
+
     # -------------------------------------------------------------- writing the result
     def replace(self, unit, pieces, keep):
         if unit in keep:
@@ -332,9 +414,14 @@ class Flatten(inkex.EffectExtension):
         for p in pieces:
             e = inkex.PathElement()
             e.path = inkex.Path(p['d']).transform(to_parent)
-            e.style = inkex.Style({'fill': p['color'], 'stroke': 'none'})
-            if p.get('label'):
-                e.label = p['label']
+            color, label = p['color'], p.get('label')
+            if self.grads.is_key(color):  # a fade: a real gradient, placed for this parent
+                if label:
+                    label = label.replace(color, 'fade')
+                color = self.grads.make_paint(color, to_parent)
+            e.style = inkex.Style({'fill': color, 'stroke': 'none'})
+            if label:
+                e.label = label
             new.append(e)
         for el in keep:  # unchanged, on top, at the same place on the page
             t = el.composed_transform()

@@ -21,6 +21,25 @@ non-overlapping color areas.
 
 Curves stay curves.
 
+Gradient fills are kept, and each object with a gradient stays one path. A gradient that
+fades from one color to another (in-between stops included) becomes a two-color fade
+linked to a shared gradient that holds only those two colors (named, for example,
+"fade #201e1e #d2ae6d"). All fades between the same two colors link to the same shared
+gradient, so changing gold to red there once recolors every fade, in Inkscape and in a
+web page. Fade end colors that are nearly the same across the design become one color;
+the message lists them. The fade keeps its position and width; its curve can differ
+slightly from the original, by a few color levels out of 255. Radial gradients, gradients
+that repeat or reflect, and fades through more than two colors keep their own colors.
+A gradient that shows only one color becomes a solid color.
+
+When a PDF draws one shape (for example a blade) as a fade plus a solid end in the fade's
+end color, both clipped to the shape, the solid end joins the fade's path, so the shape is
+one path. Where the PDF's fade stops a little short of its end color, the small step there
+becomes smooth (up to 20 color levels in a strip next to the fade). A second fade between
+the same two colors in a different direction (a curved blade drawn as two straight fades)
+also joins, so each shape is one path; its own small fade, for example a glow at a tip,
+is not kept. The message says how many parts this happened to.
+
 Panel outlines (lines with no fill that follow the selection's outermost clip) stay
 lines. Text, images and other objects that can't be converted exactly are put back
 unchanged and listed in a message. Undo with Ctrl+Z.
@@ -54,7 +73,7 @@ Inkscape 1.4 AppImage).
 
 ## Limits
 
-- Gradients and patterns are left out (only solid colors are supported).
+- Patterns, and gradients on lines (strokes), are left out (only solid colors are supported).
 - Transparency is ignored (treated as fully opaque).
 - Dashed lines are converted as solid lines.
 - Masks are ignored.

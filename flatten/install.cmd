@@ -12,6 +12,7 @@ if exist "%DEST%" rmdir /s /q "%DEST%"
 mkdir "%DEST%"
 copy /y "%SRC%flatten.py" "%DEST%\" >nul
 copy /y "%SRC%flatten_worker.py" "%DEST%\" >nul
+copy /y "%SRC%gradients.py" "%DEST%\" >nul
 copy /y "%SRC%flatten.inx" "%DEST%\" >nul
 xcopy /e /i /q /y "%SRC%vendor" "%DEST%\vendor" >nul
 rem The Linux library (.so) is not needed on Windows.
